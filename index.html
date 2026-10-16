@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Planning Poker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=Roboto+Mono:wght@500;700&display=swap">
+<style>
+/* Layout: single column app, max 920px; header bar, then issue → cards → table/results. */
+:root {
+  --bg: #f3f5f2;
+  --surface: #ffffff;
+  --surface-2: #e8ece6;
+  --fg: #1c2420;
+  --muted: #647069;
+  --line: #d2d9d1;
+  --accent: #0f6e56;
+  --accent-fg: #ffffff;
+  --accent-soft: #d8ede4;
+  --warn: #b25f00;
+  --warn-soft: #fbe9d2;
+  --danger: #a73a2b;
+  --felt: #1f5a46;
+  --felt-fg: #e8f3ee;
+  --font-body: "Zen Kaku Gothic New", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  --font-mono: "Roboto Mono", "SF Mono", Menlo, Consolas, monospace;
+  --radius: 10px;
+  --shadow: 0 1px 2px rgba(20,30,25,.08), 0 6px 20px rgba(20,30,25,.06);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #131816; --surface: #1c2320; --surface-2: #252e2a; --fg: #e9eeeb; --muted: #94a09a;
+    --line: #313c36; --accent: #4fb995; --accent-fg: #0d1a15; --accent-soft: #1e3a30;
+    --warn: #e5a04a; --warn-soft: #3a2a14; --danger: #e07a6c; --felt: #19423a; --felt-fg: #d9ebe3;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 6px 20px rgba(0,0,0,.3); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #131816; --surface: #1c2320; --surface-2: #252e2a; --fg: #e9eeeb; --muted: #94a09a;
+  --line: #313c36; --accent: #4fb995; --accent-fg: #0d1a15; --accent-soft: #1e3a30;
+  --warn: #e5a04a; --warn-soft: #3a2a14; --danger: #e07a6c; --felt: #19423a; --felt-fg: #d9ebe3;
+  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 6px 20px rgba(0,0,0,.3); color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.6;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: env(safe-area-inset-top, 0px) max(24px, env(safe-area-inset-bottom, 0px));
+}
+.app { max-width: 920px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; padding-top: 14px; }
+h1, h2, h3 { margin: 0; text-wrap: balance; line-height: 1.3; }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 8px 14px; }
+button:hover { border-color: var(--accent); }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+.btn-primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); font-weight: 700; }
+.btn-primary:hover { filter: brightness(1.08); }
+.btn-ghost { background: transparent; }
+.btn-sm { padding: 5px 10px; font-size: 13px; border-radius: 6px; }
+input[type=text], select { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; width: 100%; min-width: 0; }
+.muted { color: var(--muted); }
+.eyebrow { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.grow { flex: 1 1 200px; min-width: 0; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+/* header */
+.topbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand-mark { width: 30px; height: 40px; border-radius: 5px; background: var(--felt); color: var(--felt-fg); display: grid; place-items: center; font-family: var(--font-mono); font-weight: 700; font-size: 16px; box-shadow: var(--shadow); }
+.roomchip { display: inline-flex; align-items: center; gap: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 4px 6px 4px 12px; }
+.roomchip .code { font-family: var(--font-mono); font-weight: 700; letter-spacing: .1em; }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); display: inline-block; }
+.status-dot.on { background: var(--accent); }
+
+/* lobby */
+.lobby { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.lobby .card { display: flex; flex-direction: column; gap: 12px; }
+@media (max-width: 640px) { .lobby { grid-template-columns: 1fr; } }
+.lobby h2 { font-size: 17px; }
+.hint { font-size: 13px; color: var(--muted); }
+.error { color: var(--danger); font-size: 13px; min-height: 1.2em; }
+
+/* issue */
+.issue { display: flex; flex-direction: column; gap: 6px; }
+.issue-view { font-size: 20px; font-weight: 700; cursor: text; padding: 4px 0; min-height: 1.4em; overflow-wrap: anywhere; }
+.issue-view.empty { color: var(--muted); font-weight: 500; }
+
+/* table */
+.table { background: var(--felt); color: var(--felt-fg); border-radius: 16px; padding: 18px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 14px; }
+.table .eyebrow { color: var(--felt-fg); opacity: .75; }
+.seats { display: flex; flex-wrap: wrap; gap: 12px; }
+.seat { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 84px; }
+.seat .name { font-size: 12px; max-width: 84px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
+.seat .name.me { font-weight: 700; }
+.pcard { width: 52px; height: 72px; border-radius: 7px; display: grid; place-items: center; font-family: var(--font-mono); font-weight: 700; font-size: 20px; border: 2px dashed rgba(255,255,255,.35); transition: transform .25s, background .25s; }
+.pcard.voted { background: repeating-linear-gradient(45deg, rgba(255,255,255,.25) 0 6px, rgba(255,255,255,.08) 6px 12px); border: 2px solid rgba(255,255,255,.7); }
+.pcard.open { background: #fff; color: #1c2420; border: 2px solid #fff; transform: rotateY(0); }
+.pcard.observer { border-style: dotted; opacity: .5; font-size: 12px; font-family: var(--font-body); }
+.table-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.table-actions button { background: rgba(255,255,255,.12); color: var(--felt-fg); border-color: rgba(255,255,255,.3); }
+.table-actions button:hover { background: rgba(255,255,255,.22); }
+.table-actions .btn-reveal { background: #fff; color: #1c2420; border-color: #fff; font-weight: 700; }
+.table-actions .btn-reveal:hover { filter: brightness(.95); }
+.progress { font-size: 13px; opacity: .85; }
+@media (prefers-reduced-motion: reduce) { .pcard { transition: none; } }
+
+/* hand */
+.hand { display: flex; flex-direction: column; gap: 10px; }
+.deck { display: grid; grid-template-columns: repeat(auto-fill, minmax(62px, 1fr)); gap: 10px; }
+.hcard { aspect-ratio: 5 / 7; border-radius: 9px; border: 1px solid var(--line); background: var(--surface); font-family: var(--font-mono); font-weight: 700; font-size: 22px; display: grid; place-items: center; box-shadow: var(--shadow); transition: transform .12s, border-color .12s; padding: 0; }
+.hcard:hover { transform: translateY(-3px); border-color: var(--accent); }
+.hcard.selected { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); transform: translateY(-6px); }
+.hcard:disabled { transform: none; box-shadow: none; }
+@media (prefers-reduced-motion: reduce) { .hcard { transition: none; } }
+
+/* results */
+.results { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 640px) { .results { grid-template-columns: 1fr; } }
+.stat { display: flex; flex-direction: column; gap: 2px; }
+.stat .big { font-family: var(--font-mono); font-size: 34px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.stats { display: flex; gap: 24px; flex-wrap: wrap; }
+.bars { display: flex; flex-direction: column; gap: 8px; }
+.bar { display: grid; grid-template-columns: 44px 1fr 32px; gap: 10px; align-items: center; font-size: 13px; }
+.bar .v { font-family: var(--font-mono); font-weight: 700; font-size: 15px; }
+.bar .track { height: 10px; background: var(--surface-2); border-radius: 5px; overflow: hidden; }
+.bar .fill { height: 100%; background: var(--accent); border-radius: 5px; }
+.bar .n { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+.consensus { display: inline-flex; align-items: center; gap: 6px; background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 2px 10px; font-size: 13px; font-weight: 700; }
+.spread { background: var(--warn-soft); color: var(--warn); }
+.voters { font-size: 13px; color: var(--muted); }
+
+/* history */
+.history { display: flex; flex-direction: column; gap: 8px; }
+.history-item { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: baseline; padding: 8px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.history-item:first-of-type { border-top: 0; }
+.history-item .r { font-family: var(--font-mono); font-weight: 700; white-space: nowrap; }
+.history-item .issue-t { overflow-wrap: anywhere; }
+.history-item .detail { color: var(--muted); font-size: 12px; }
+
+/* toast / notice */
+.notice { background: var(--warn-soft); color: var(--warn); border-radius: 8px; padding: 10px 14px; font-size: 14px; }
+.notice.danger { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
+.toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 8px 14px; border-radius: 999px; font-size: 13px; box-shadow: var(--shadow); opacity: 0; transition: opacity .2s; pointer-events: none; }
+.toast.show { opacity: 1; }
+.settings { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; font-size: 13px; }
+.settings select { width: auto; padding: 6px 10px; font-size: 13px; }
+label.check { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">?</div>
+      <div>
+        <h1 style="font-size:18px">Planning Poker</h1>
+        <div class="hint">ログイン不要・ブラウザ同士で直接つながります</div>
+      </div>
+    </div>
+    <div id="roomchip" class="roomchip" hidden>
+      <span id="statusDot" class="status-dot"></span>
+      <span>部屋</span><span id="roomCodeView" class="code"></span>
+      <button id="copyLink" class="btn-sm">リンクをコピー</button>
+      <button id="leaveBtn" class="btn-sm btn-ghost" title="退出">退出</button>
+    </div>
+  </header>
+
+  <!-- Lobby -->
+  <section id="lobby" class="lobby">
+    <div class="card" style="grid-column: 1 / -1">
+      <label for="nameInput" class="eyebrow">あなたの名前</label>
+      <input id="nameInput" type="text" placeholder="例: いちむら" maxlength="20" autocomplete="nickname">
+    </div>
+    <div class="card">
+      <h2>新しい部屋を作る</h2>
+      <p class="hint">あなたがホストになります。発行されたリンクをチームに共有してください。ホストがページを閉じると部屋は終了します。</p>
+      <div class="settings">
+        <label for="deckSelect">デッキ</label>
+        <select id="deckSelect"></select>
+      </div>
+      <button id="createBtn" class="btn-primary">部屋を作る</button>
+    </div>
+    <div class="card">
+      <h2>部屋に入る</h2>
+      <p class="hint">共有された部屋コードを入力します。リンクから開いた場合は自動で入ります。</p>
+      <input id="joinCode" type="text" placeholder="部屋コード（例: K7P3Q）" maxlength="8" autocapitalize="characters" class="mono" style="letter-spacing:.15em">
+      <button id="joinBtn">入る</button>
+      <div id="lobbyError" class="error" role="alert"></div>
+    </div>
+  </section>
+
+  <!-- Room -->
+  <section id="room" hidden style="display:flex; flex-direction:column; gap:18px">
+    <div id="notice" class="notice" hidden></div>
+
+    <div class="card issue">
+      <span class="eyebrow">見積もり対象</span>
+      <div id="issueView" class="issue-view empty" title="クリックして編集" tabindex="0">タップして見積もり対象を入力（例: PBI-42 ログイン画面の改修）</div>
+      <input id="issueInput" type="text" hidden placeholder="見積もり対象を入力して Enter" maxlength="140">
+    </div>
+
+    <div class="table">
+      <div class="row" style="justify-content:space-between">
+        <span class="eyebrow">テーブル</span>
+        <span id="progress" class="progress"></span>
+      </div>
+      <div id="seats" class="seats"></div>
+      <div class="table-actions">
+        <button id="revealBtn" class="btn-reveal">カードをオープン</button>
+        <button id="resetBtn">次のラウンドへ</button>
+        <label class="check"><input type="checkbox" id="observerToggle"> 見学（投票しない）</label>
+      </div>
+    </div>
+
+    <div id="handSection" class="hand">
+      <div class="row" style="justify-content:space-between">
+        <span class="eyebrow">あなたのカード</span>
+        <span id="handHint" class="hint"></span>
+      </div>
+      <div id="deck" class="deck"></div>
+    </div>
+
+    <div id="resultsSection" class="results" hidden>
+      <div class="card">
+        <span class="eyebrow">結果</span>
+        <div class="stats" style="margin-top:8px">
+          <div class="stat"><span class="hint">平均</span><span id="statAvg" class="big">–</span></div>
+          <div class="stat"><span class="hint">中央値</span><span id="statMed" class="big">–</span></div>
+          <div class="stat"><span class="hint">最多</span><span id="statMode" class="big">–</span></div>
+        </div>
+        <div id="consensus" style="margin-top:12px"></div>
+      </div>
+      <div class="card">
+        <span class="eyebrow">分布</span>
+        <div id="bars" class="bars" style="margin-top:10px"></div>
+      </div>
+    </div>
+
+    <div class="card history" id="historyCard" hidden>
+      <span class="eyebrow">これまでのラウンド</span>
+      <div id="history"></div>
+    </div>
+
+    <div class="settings card">
+      <label for="deckSelectRoom">デッキ</label>
+      <select id="deckSelectRoom"></select>
+      <span class="hint">変更すると現在の投票はリセットされます</span>
+    </div>
+  </section>
+</div>
+<div id="toast" class="toast" role="status"></div>
+
+<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const DECKS = {
+    fib:   { label: 'フィボナッチ (0 1 2 3 5 8 13 21 ? ☕)', cards: ['0','1','2','3','5','8','13','21','?','☕'] },
+    mfib:  { label: '修正フィボナッチ (0 ½ 1 2 3 5 8 13 20 40 100 ? ☕)', cards: ['0','½','1','2','3','5','8','13','20','40','100','?','☕'] },
+    tshirt:{ label: 'Tシャツ (XS S M L XL XXL ?)', cards: ['XS','S','M','L','XL','XXL','?'] },
+    pow2:  { label: '2のべき乗 (1 2 4 8 16 32 ?)', cards: ['1','2','4','8','16','32','?'] },
+  };
+  const PREFIX = 'pp-room-';
+  const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+
+  // ---- state ----
+  let peer = null;          // my Peer
+  let hostConn = null;      // client → host connection
+  let conns = new Map();    // host: peerId → conn
+  let isHost = false;
+  let roomCode = '';
+  let myId = '';
+  let myName = '';
+  let view = null;          // what everyone renders (host builds, clients receive)
+  // host-only authoritative state
+  let S = null; // { issue, deck, revealed, participants: {id:{name, vote, observer, order}}, history: [] }
+
+  // ---- helpers ----
+  const toast = (msg) => { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2200); };
+  const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  const genCode = () => Array.from({ length: 5 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('');
+  const normCode = (c) => (c || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const linkFor = (code) => location.href.split('#')[0] + '#' + code;
+  const numOf = (v) => { if (v === '½') return 0.5; const n = Number(v); return Number.isFinite(n) ? n : null; };
+  const fmt = (n) => (Math.round(n * 10) / 10).toString();
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+
+  for (const sel of [$('deckSelect'), $('deckSelectRoom')]) {
+    for (const [k, d] of Object.entries(DECKS)) sel.append(new Option(d.label, k));
+  }
+  $('nameInput').value = store.get('pp-name') || '';
+
+  // ---- host logic ----
+  function hostInit(deckKey) {
+    S = { issue: '', deck: deckKey, revealed: false, participants: {}, history: [], round: 1 };
+    S.participants[myId] = { name: myName, vote: null, observer: false, order: 0 };
+  }
+  function hostApply(from, msg) {
+    const p = S.participants[from];
+    switch (msg.type) {
+      case 'join':
+        S.participants[from] = { name: String(msg.name || '名無し').slice(0, 20), vote: null, observer: !!msg.observer, order: Object.keys(S.participants).length };
+        break;
+      case 'leave': delete S.participants[from]; break;
+      case 'vote': if (p && !p.observer && !S.revealed) p.vote = (p.vote === msg.value) ? null : String(msg.value).slice(0, 8); break;
+      case 'observer': if (p) { p.observer = !!msg.value; if (p.observer) p.vote = null; } break;
+      case 'issue': S.issue = String(msg.value || '').slice(0, 140); break;
+      case 'reveal': { const voters = Object.values(S.participants).filter(q => !q.observer); if (voters.some(q => q.vote != null)) S.revealed = true; break; }
+      case 'reset': {
+        if (S.revealed) {
+          const votes = Object.values(S.participants).filter(q => !q.observer && q.vote != null).map(q => q.vote);
+          S.history.unshift({ round: S.round, issue: S.issue, summary: summarize(votes) });
+          S.history = S.history.slice(0, 20);
+          S.round++;
+          S.issue = ''; // 次の対象へ。オープン前のリセットは対象を残して再投票
+        }
+        S.revealed = false; for (const q of Object.values(S.participants)) q.vote = null;
+        break;
+      }
+      case 'deck': if (DECKS[msg.value]) { S.deck = msg.value; S.revealed = false; for (const q of Object.values(S.participants)) q.vote = null; } break;
+    }
+    broadcast();
+  }
+  function buildView() {
+    const parts = {};
+    for (const [id, q] of Object.entries(S.participants)) parts[id] = { name: q.name, observer: q.observer, voted: q.vote != null, vote: S.revealed ? q.vote : null, order: q.order };
+    return { issue: S.issue, deck: S.deck, revealed: S.revealed, participants: parts, history: S.history, round: S.round, hostId: myId };
+  }
+  function broadcast() {
+    view = buildView();
+    const payload = { type: 'state', view };
+    for (const c of conns.values()) { if (c.open) { try { c.send(payload); } catch {} } }
+    render();
+  }
+  function summarize(votes) {
+    const nums = votes.map(numOf).filter(n => n != null);
+    const counts = {}; for (const v of votes) counts[v] = (counts[v] || 0) + 1;
+    const mode = Object.entries(counts).sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(b[0]))[0]?.[0] ?? '–';
+    let avg = null, med = null;
+    if (nums.length) { avg = nums.reduce((a, b) => a + b, 0) / nums.length; const s = [...nums].sort((a, b) => a - b); med = s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2; }
+    const consensus = votes.length > 1 && Object.keys(counts).length === 1;
+    return { counts, mode, avg, med, n: votes.length, consensus };
+  }
+
+  // ---- send action (host applies directly, client sends to host) ----
+  function act(msg) {
+    if (isHost) hostApply(myId, msg);
+    else if (hostConn && hostConn.open) hostConn.send(msg);
+    else toast('ホストに接続していません');
+  }
+
+  // ---- connection setup ----
+  function setStatus(on) { $('statusDot').classList.toggle('on', on); }
+  function showNotice(text, danger) { const n = $('notice'); n.hidden = !text; n.textContent = text || ''; n.classList.toggle('danger', !!danger); }
+
+  function requireName() {
+    myName = $('nameInput').value.trim().slice(0, 20);
+    if (!myName) { $('lobbyError').textContent = '先に名前を入力してください'; $('nameInput').focus(); return false; }
+    store.set('pp-name', myName); $('lobbyError').textContent = ''; return true;
+  }
+
+  function createRoom() {
+    if (!requireName()) return;
+    const code = genCode();
+    $('createBtn').disabled = true; $('createBtn').textContent = '作成中…';
+    peer = new Peer(PREFIX + code.toLowerCase(), { debug: 1 });
+    peer.on('open', (id) => {
+      myId = id; isHost = true; roomCode = code;
+      hostInit($('deckSelect').value);
+      enterRoom(); broadcast(); setStatus(true);
+      toast('部屋を作りました。リンクを共有してください');
+    });
+    peer.on('connection', (conn) => {
+      conns.set(conn.peer, conn);
+      conn.on('data', (msg) => { if (msg && typeof msg === 'object') hostApply(conn.peer, msg); });
+      conn.on('close', () => { conns.delete(conn.peer); if (S && S.participants[conn.peer]) { delete S.participants[conn.peer]; broadcast(); } });
+      conn.on('error', () => {});
+    });
+    peer.on('error', (e) => {
+      if (e.type === 'unavailable-id') { peer.destroy(); createRoom(); return; }
+      lobbyFail(e);
+    });
+    peer.on('disconnected', () => { setStatus(false); try { peer.reconnect(); } catch {} });
+  }
+
+  function joinRoom(code) {
+    code = normCode(code);
+    if (!code) { $('lobbyError').textContent = '部屋コードを入力してください'; return; }
+    if (!requireName()) return;
+    $('joinBtn').disabled = true; $('joinBtn').textContent = '接続中…';
+    peer = new Peer({ debug: 1 });
+    peer.on('open', (id) => {
+      myId = id;
+      hostConn = peer.connect(PREFIX + code.toLowerCase(), { reliable: true });
+      const timeout = setTimeout(() => { if (!hostConn.open) lobbyFail({ type: 'timeout' }); }, 12000);
+      hostConn.on('open', () => {
+        clearTimeout(timeout); isHost = false; roomCode = code;
+        hostConn.send({ type: 'join', name: myName });
+        enterRoom(); setStatus(true);
+      });
+      hostConn.on('data', (msg) => { if (msg && msg.type === 'state') { view = msg.view; render(); } });
+      hostConn.on('close', () => { setStatus(false); showNotice('ホストとの接続が切れました（ホストが退出した可能性があります）。新しい部屋を作ってやり直してください。', true); });
+      hostConn.on('error', () => {});
+    });
+    peer.on('error', (e) => lobbyFail(e));
+    peer.on('disconnected', () => { setStatus(false); try { peer.reconnect(); } catch {} });
+  }
+
+  function lobbyFail(e) {
+    const t = e && e.type;
+    const msgs = {
+      'peer-unavailable': 'その部屋コードの部屋が見つかりません。ホストがまだ開いているか確認してください。',
+      'network': '接続サーバーに届きません。ネットワーク（VPNやファイアウォール）を確認してください。',
+      'timeout': '接続がタイムアウトしました。ネットワークがWebRTCを遮断している可能性があります。',
+      'browser-incompatible': 'このブラウザはWebRTCに対応していません。',
+    };
+    $('lobbyError').textContent = msgs[t] || ('接続エラー: ' + (t || e));
+    $('createBtn').disabled = false; $('createBtn').textContent = '部屋を作る';
+    $('joinBtn').disabled = false; $('joinBtn').textContent = '入る';
+    if (peer && $('room').hidden) { try { peer.destroy(); } catch {} peer = null; }
+  }
+
+  function enterRoom() {
+    $('lobby').hidden = true; $('room').hidden = false; $('roomchip').hidden = false;
+    $('roomCodeView').textContent = roomCode;
+    history.replaceState(null, '', '#' + roomCode);
+    document.title = `Planning Poker · ${roomCode}`;
+  }
+  function leaveRoom() {
+    try { if (!isHost) act({ type: 'leave' }); } catch {}
+    try { peer && peer.destroy(); } catch {}
+    peer = null; hostConn = null; conns = new Map(); isHost = false; view = null; S = null;
+    $('lobby').hidden = false; $('room').hidden = true; $('roomchip').hidden = true;
+    $('createBtn').disabled = false; $('createBtn').textContent = '部屋を作る';
+    $('joinBtn').disabled = false; $('joinBtn').textContent = '入る';
+    history.replaceState(null, '', location.pathname + location.search);
+    document.title = 'Planning Poker';
+    showNotice('');
+  }
+
+  // ---- render ----
+  let myVoteLocal = null; // optimistic highlight
+  function render() {
+    if (!view) return;
+    const me = view.participants[myId];
+    const deck = DECKS[view.deck] || DECKS.fib;
+    const list = Object.entries(view.participants).sort((a, b) => a[1].order - b[1].order);
+    const voters = list.filter(([, p]) => !p.observer);
+    const votedN = voters.filter(([, p]) => p.voted).length;
+
+    // issue
+    const iv = $('issueView');
+    if ($('issueInput').hidden) { iv.textContent = view.issue || 'タップして見積もり対象を入力（例: PBI-42 ログイン画面の改修）'; iv.classList.toggle('empty', !view.issue); }
+
+    // seats
+    const seats = $('seats'); seats.replaceChildren();
+    for (const [id, p] of list) {
+      const seat = el('div', 'seat');
+      const c = el('div', 'pcard');
+      if (p.observer) { c.classList.add('observer'); c.textContent = '見学'; }
+      else if (view.revealed) { c.classList.add('open'); c.textContent = p.vote ?? '–'; }
+      else if (p.voted) { c.classList.add('voted'); }
+      const n = el('div', 'name', p.name + (id === view.hostId ? ' ★' : ''));
+      if (id === myId) n.classList.add('me');
+      n.title = p.name + (id === view.hostId ? '（ホスト）' : '') + (id === myId ? '（あなた）' : '');
+      seat.append(c, n); seats.append(seat);
+    }
+    $('progress').textContent = view.revealed ? `ラウンド ${view.round} · オープン済み` : `ラウンド ${view.round} · ${votedN} / ${voters.length} 人が投票済み${voters.length && votedN === voters.length ? ' ✓ 全員' : ''}`;
+    $('revealBtn').disabled = view.revealed || votedN === 0;
+    $('revealBtn').textContent = view.revealed ? 'オープン済み' : (votedN === voters.length && votedN > 0 ? 'カードをオープン ✓' : 'カードをオープン');
+    $('observerToggle').checked = !!(me && me.observer);
+
+    // hand
+    const hs = $('handSection');
+    hs.hidden = !!(me && me.observer);
+    const d = $('deck'); d.replaceChildren();
+    for (const v of deck.cards) {
+      const b = el('button', 'hcard', v);
+      b.type = 'button';
+      b.disabled = view.revealed;
+      const mine = view.revealed ? (me && me.vote === v) : (myVoteLocal === v);
+      if (mine) b.classList.add('selected');
+      b.setAttribute('aria-pressed', mine ? 'true' : 'false');
+      b.addEventListener('click', () => { myVoteLocal = (myVoteLocal === v) ? null : v; act({ type: 'vote', value: v }); render(); });
+      d.append(b);
+    }
+    $('handHint').textContent = view.revealed ? '次のラウンドで再投票できます' : (me && me.voted ? '投票済み（もう一度押すと取り消し）' : 'カードを選んでください');
+    if (me && !me.voted && !view.revealed) myVoteLocal = null;
+
+    // results
+    const rs = $('resultsSection');
+    rs.hidden = !view.revealed;
+    if (view.revealed) {
+      const votes = voters.map(([, p]) => p.vote).filter(v => v != null);
+      const sm = summarize(votes);
+      $('statAvg').textContent = sm.avg == null ? '–' : fmt(sm.avg);
+      $('statMed').textContent = sm.med == null ? '–' : fmt(sm.med);
+      $('statMode').textContent = sm.mode;
+      const cons = $('consensus'); cons.replaceChildren();
+      if (sm.consensus) cons.append(el('span', 'consensus', '全員一致 🎉'));
+      else if (sm.n > 1) {
+        const nums = votes.map(numOf).filter(n => n != null);
+        // 数値カードで、最低と最高がデッキ上2段以上離れていれば「ばらつき大」
+        const spreadWide = nums.length > 1 && deckDistance(deck, Math.min(...nums), Math.max(...nums)) >= 2;
+        cons.append(el('span', 'consensus' + (spreadWide ? ' spread' : ''), spreadWide ? 'ばらつき大 · 最高と最低の人に理由を聞いてみましょう' : 'ほぼ一致'));
+      }
+      const bars = $('bars'); bars.replaceChildren();
+      const order = deck.cards.filter(c => sm.counts[c]).concat(Object.keys(sm.counts).filter(c => !deck.cards.includes(c)));
+      for (const v of order) {
+        const row = el('div', 'bar');
+        const names = voters.filter(([, p]) => p.vote === v).map(([, p]) => p.name).join('、');
+        row.append(el('span', 'v', v));
+        const track = el('div', 'track'); const fill = el('div', 'fill'); fill.style.width = (sm.counts[v] / sm.n * 100) + '%'; track.append(fill);
+        track.title = names; row.append(track);
+        row.append(el('span', 'n', sm.counts[v] + '人'));
+        bars.append(row);
+        const who = el('div', 'voters', names); who.style.gridColumn = '2 / -1'; who.style.marginTop = '-6px';
+        const wrap = el('div', 'bar'); wrap.append(el('span'), who); bars.append(wrap);
+      }
+    }
+
+    // history
+    $('historyCard').hidden = !(view.history && view.history.length);
+    const h = $('history'); h.replaceChildren();
+    for (const item of (view.history || [])) {
+      const it = el('div', 'history-item');
+      const left = el('div'); left.append(el('div', 'issue-t', `#${item.round} ${item.issue || '（対象未入力）'}`));
+      const parts = Object.entries(item.summary.counts).map(([v, n]) => `${v}×${n}`).join('  ');
+      left.append(el('div', 'detail', `${item.summary.n}人 · ${parts}${item.summary.consensus ? ' · 全員一致' : ''}`));
+      const right = el('div', 'r', item.summary.avg == null ? item.summary.mode : `平均 ${fmt(item.summary.avg)}`);
+      it.append(left, right); h.append(it);
+    }
+    $('deckSelectRoom').value = view.deck;
+  }
+  function deckDistance(deck, lo, hi) {
+    const nums = deck.cards.map(numOf).filter(n => n != null).sort((a, b) => a - b);
+    return Math.abs(nums.indexOf(hi) - nums.indexOf(lo));
+  }
+
+  // ---- UI wiring ----
+  $('createBtn').addEventListener('click', createRoom);
+  $('joinBtn').addEventListener('click', () => joinRoom($('joinCode').value));
+  $('joinCode').addEventListener('keydown', (e) => { if (e.key === 'Enter') joinRoom($('joinCode').value); });
+  $('nameInput').addEventListener('keydown', (e) => { if (e.key === 'Enter' && $('joinCode').value) joinRoom($('joinCode').value); });
+  $('leaveBtn').addEventListener('click', leaveRoom);
+  $('copyLink').addEventListener('click', async () => {
+    const link = linkFor(roomCode);
+    try { await navigator.clipboard.writeText(link); toast('リンクをコピーしました'); }
+    catch { const i = document.createElement('input'); i.value = link; document.body.append(i); i.select(); try { document.execCommand('copy'); toast('リンクをコピーしました'); } catch { toast(link); } i.remove(); }
+  });
+  $('revealBtn').addEventListener('click', () => act({ type: 'reveal' }));
+  $('resetBtn').addEventListener('click', () => { myVoteLocal = null; act({ type: 'reset' }); });
+  $('observerToggle').addEventListener('change', (e) => { myVoteLocal = null; act({ type: 'observer', value: e.target.checked }); });
+  $('deckSelectRoom').addEventListener('change', (e) => { myVoteLocal = null; act({ type: 'deck', value: e.target.value }); });
+
+  const openIssueEditor = () => { $('issueView').hidden = true; const i = $('issueInput'); i.hidden = false; i.value = view ? view.issue : ''; i.focus(); i.select(); };
+  const closeIssueEditor = (save) => { const i = $('issueInput'); if (save) act({ type: 'issue', value: i.value.trim() }); i.hidden = true; $('issueView').hidden = false; render(); };
+  $('issueView').addEventListener('click', openIssueEditor);
+  $('issueView').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openIssueEditor(); } });
+  $('issueInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') closeIssueEditor(true); if (e.key === 'Escape') closeIssueEditor(false); });
+  $('issueInput').addEventListener('blur', () => closeIssueEditor(true));
+
+  window.addEventListener('beforeunload', () => { try { if (!isHost && hostConn && hostConn.open) hostConn.send({ type: 'leave' }); } catch {} });
+
+  // auto-join from link
+  const hashCode = normCode(location.hash.slice(1));
+  if (hashCode) {
+    $('joinCode').value = hashCode;
+    if ($('nameInput').value.trim()) joinRoom(hashCode); else { $('nameInput').focus(); $('lobbyError').textContent = ''; }
+  }
+})();
+</script>
+</body>
+</html>
